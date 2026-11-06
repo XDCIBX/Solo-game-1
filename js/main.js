@@ -19,7 +19,8 @@
   const ui = new TD.UI(game, renderer, sfx, { save });
 
   try { sfx.on = localStorage.getItem('lastBastion.sound') !== 'off'; } catch (e) { /* ignore */ }
-  $('#btnSound').textContent = sfx.on ? '🔊' : '🔇';
+  const setSoundBtn = () => { $('#btnSound').innerHTML = TD.icon(sfx.on ? 'sound' : 'mute'); };
+  setSoundBtn();
 
   // ---------- События игры ----------
   game.on('sfx', (n) => sfx.play(n));
@@ -32,9 +33,9 @@
     renderer.showBanner(z.name, 'Босс вышел на поле боя', '#ff6a4a');
     sfx.play('boss');
   });
-  game.on('bossDown', (z) => { ui.toast(`☠ ${z.name} повержен!`); sfx.play('win'); });
+  game.on('bossDown', (z) => { ui.toast(`☠ <b>${z.name}</b> повержен!`); sfx.play('win'); });
   game.on('waveCleared', (d) => {
-    renderer.showBanner('ВОЛНА ОТБИТА!', `Награда +${d.reward} 🪙   ·   за убийства +${d.killGold} 🪙`, '#9cff7a');
+    renderer.showBanner('ВОЛНА ОТБИТА!', `Награда +${d.reward} золота   ·   за убийства +${d.killGold}`, '#9cff7a');
     sfx.play('coin');
     setTimeout(() => sfx.play('coin'), 150);
   });
@@ -48,7 +49,7 @@
         `<h2 class="bad">Стена пала!</h2>
          <p>Мертвецы прорвались на <b>волне ${w}</b>.</p>
          <p>Золото, заработанное в бою, остаётся у вас. Усильте оборону и попробуйте снова — стена будет отстроена.</p>`,
-        [{ text: '🛡 Повторить волну', cls: 'primary', fn: () => { game.retryWave(); save(); } }],
+        [{ text: '<i class="ico" data-icon="shield"></i> Повторить волну', cls: 'primary', fn: () => { game.retryWave(); save(); } }],
       );
     }, 1600);
   });
@@ -82,8 +83,8 @@
   function mainMenu() {
     const sv = store.load();
     const btns = [];
-    if (sv && sv.wave) btns.push({ text: `▶ Продолжить (волна ${sv.wave})`, cls: 'primary', fn: () => { game.load(sv); begin(); } });
-    btns.push({ text: sv ? 'Новая игра' : '⚔ Начать оборону', cls: sv ? '' : 'primary', fn: () => newGame() });
+    if (sv && sv.wave) btns.push({ text: `<i class="ico" data-icon="play"></i> Продолжить · волна ${sv.wave}`, cls: 'primary', fn: () => { game.load(sv); begin(); } });
+    btns.push({ text: sv ? 'Новая игра' : '<i class="ico" data-icon="swords"></i> Начать оборону', cls: sv ? '' : 'primary', fn: () => newGame() });
     ui.modal(
       `<div class="logo">♜</div>
        <h1>Последний Бастион</h1>
@@ -114,7 +115,7 @@
     ui.modal(
       `<h2>Пауза</h2>${HOWTO}`,
       [
-        { text: '▶ Продолжить', cls: 'primary', fn: () => { paused = false; setPauseBtn(); } },
+        { text: '<i class="ico" data-icon="play"></i> Продолжить', cls: 'primary', fn: () => { paused = false; setPauseBtn(); } },
         {
           text: 'Новая игра', keep: true, fn: () => ui.modal('<h2>Начать заново?</h2><p>Весь прогресс будет потерян.</p>', [
             { text: 'Да, заново', cls: 'danger', fn: () => newGame() },
@@ -125,7 +126,7 @@
     );
   }
 
-  function setPauseBtn() { $('#btnPause').textContent = paused ? '▶' : '⏸'; $('#btnPause').classList.toggle('on', paused); }
+  function setPauseBtn() { $('#btnPause').innerHTML = TD.icon(paused ? 'play' : 'pause'); $('#btnPause').classList.toggle('on', paused); }
 
   $('#btnPause').addEventListener('click', () => {
     if (game.phase === 'menu' || ui.modalOpen) return;
@@ -134,13 +135,13 @@
   });
   $('#btnSpeed').addEventListener('click', () => {
     speed = speed === 1 ? 2 : speed === 2 ? 3 : 1;
-    $('#btnSpeed').textContent = 'x' + speed;
+    $('#btnSpeed').innerHTML = '<b>x' + speed + '</b>';
     $('#btnSpeed').classList.toggle('on', speed > 1);
   });
   $('#btnSound').addEventListener('click', () => {
     sfx.on = !sfx.on;
     sfx.init();
-    $('#btnSound').textContent = sfx.on ? '🔊' : '🔇';
+    setSoundBtn();
     try { localStorage.setItem('lastBastion.sound', sfx.on ? 'on' : 'off'); } catch (e) { /* ignore */ }
   });
   $('#btnMenu').addEventListener('click', () => { if (game.phase !== 'menu' && !ui.modalOpen) pauseMenu(); });

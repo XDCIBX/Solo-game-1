@@ -7,7 +7,7 @@
   <meta name="description" content="2.5D защита замка: отстройте поселение и переживите 25 волн зомби.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Philosopher:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=Alegreya+SC:wght@500;700&family=Ruslan+Display&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -18,19 +18,19 @@
 
         <div id="hud">
           <div class="hud-group">
-            <div class="pill gold" id="goldPill" title="Золото"><span class="ico">🪙</span><span id="gold">0</span></div>
-            <div class="pill" title="Волна">Волна <b id="wave">1</b><span class="dim">/25</span></div>
-            <div class="pill" title="Осталось зомби">🧟 <span id="enemies">—</span></div>
+            <div class="plaque gold" id="goldPill" title="Золото"><i class="coin"></i><span id="gold">0</span></div>
+            <div class="plaque" title="Волна"><i class="ico" data-icon="shield"></i><span class="lab">Волна</span><b id="wave">1</b><span class="dim">/25</span></div>
+            <div class="plaque enemies" title="Осталось зомби"><i class="ico" data-icon="skull"></i><span id="enemies">—</span></div>
           </div>
           <div class="wallbar" title="Прочность стены">
-            <span class="wl">🧱</span>
+            <i class="ico" data-icon="tower"></i>
             <div class="bar"><div id="wallFill"></div><span id="wallText"></span></div>
           </div>
           <div class="hud-group">
-            <button id="btnSpeed" class="btn small" title="Скорость">x1</button>
-            <button id="btnPause" class="btn small" title="Пауза (P)">⏸</button>
-            <button id="btnSound" class="btn small" title="Звук">🔊</button>
-            <button id="btnMenu" class="btn small" title="Меню">☰</button>
+            <button id="btnSpeed" class="hbtn" title="Скорость"><b>x1</b></button>
+            <button id="btnPause" class="hbtn" title="Пауза (P)"><i class="ico" data-icon="pause"></i></button>
+            <button id="btnSound" class="hbtn" title="Звук"><i class="ico" data-icon="sound"></i></button>
+            <button id="btnMenu" class="hbtn" title="Меню"><i class="ico" data-icon="menu"></i></button>
           </div>
         </div>
 
@@ -38,7 +38,7 @@
           <div class="prep-title">Подготовка к волне <b id="prepWave"></b></div>
           <div class="prep-info" id="prepInfo"></div>
           <div class="prep-row">
-            <button id="btnStart" class="btn primary">⚔ В бой!</button>
+            <button id="btnStart" class="btn primary"><i class="ico" data-icon="swords"></i> В бой!</button>
             <label class="auto"><input type="checkbox" id="chkAuto"> Автостарт <span id="prepTimer"></span></label>
           </div>
         </div>
@@ -49,17 +49,25 @@
     </main>
 
     <aside id="panel">
+      <div class="panel-head">
+        <div class="ph-title">Казна поселения</div>
+        <div class="ph-gold"><i class="coin big"></i><span id="panelGold">0</span></div>
+      </div>
       <div class="tabs">
-        <button class="tab active" data-tab="building">🏘 Поселение <span class="badge"></span></button>
-        <button class="tab" data-tab="defense">🛡 Оборона <span class="badge"></span></button>
+        <button class="tab active" data-tab="building"><i class="ico" data-icon="house"></i><span>Поселение</span><span class="badge"></span></button>
+        <button class="tab" data-tab="defense"><i class="ico" data-icon="shield"></i><span>Оборона</span><span class="badge"></span></button>
       </div>
       <div id="cards"></div>
-      <div class="panel-foot">Клик по зданию на карте откроет его улучшения</div>
+      <div class="panel-foot">Нажмите на здание или орудие на карте, чтобы открыть его улучшения</div>
     </aside>
   </div>
 
   <script src="js/config.js"></script>
   <script src="js/engine.js"></script>
+  <script src="js/art/common.js"></script>
+  <script src="js/art/zombies.js"></script>
+  <script src="js/art/units.js"></script>
+  <script src="js/art/buildings.js"></script>
   <script src="js/render.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/ui.js"></script>

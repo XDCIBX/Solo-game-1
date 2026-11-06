@@ -14,7 +14,19 @@
   TD.CATAPULT_Z = [200, 115, 290];
   TD.TREB_Z = [40, 362];
   TD.CAULDRON_Z = [130, 268, 22];
-  TD.ARCHER_X = 496;
+  TD.ARCHER_X = 494;
+  // Свободные участки стены между башнями (надвратная башня 168..232, башни баллист ±28)
+  TD.WALL_FREE = [[6, 32], [92, 166], [234, 308], [368, 396]];
+  TD.archerSlots = function (n) {
+    const segs = TD.WALL_FREE, total = segs.reduce((s, g) => s + g[1] - g[0], 0);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      let d = ((i + 0.5) / n) * total;
+      for (const [a, b] of segs) { if (d <= b - a) { out.push(a + d); break; } d -= b - a; }
+    }
+    return out;
+  };
+  TD.towerTop = (i, H) => H + (i === 0 ? 28 : 22);
   TD.CATAPULT_X = 420;
   TD.TREB_X = 345;
   const MAX_PARTICLES = 1600;
@@ -117,7 +129,8 @@
       };
       const na = S.archerCount(L.archers);
       sync(this.archers, na, () => ({ cd: rnd(0, 1), anim: 9, aim: -0.35, target: null }));
-      this.archers.forEach((a, i) => { a.x = TD.ARCHER_X; a.z = 18 + ((i + 0.5) * 364) / na; });
+      const slots = TD.archerSlots(na);
+      this.archers.forEach((a, i) => { a.x = TD.ARCHER_X; a.z = slots[i]; a.v = i; });
       sync(this.ballistas, S.ballistaCount(L.ballista), (i) => ({ x: 500, z: TD.TOWER_Z[i], cd: rnd(0.5, 1.5), anim: 9, aim: 0, built: 0 }));
       sync(this.catapults, S.catapultCount(L.catapult), (i) => ({ x: TD.CATAPULT_X, z: TD.CATAPULT_Z[i], cd: rnd(0.5, 2), anim: 9, shot: null, built: 0 }));
       sync(this.trebs, S.trebCount(L.trebuchet), (i) => ({ x: TD.TREB_X, z: TD.TREB_Z[i], cd: rnd(1, 3), anim: 9, shot: null, built: 0 }));

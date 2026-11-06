@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>Sprite viewer</title>
+<body style="background:#2c3424;margin:0">
+<canvas id="c" width="1600" height="900"></canvas>
+<script src="../js/config.js"></script><script src="../js/engine.js"></script>
+<script src="../js/art/common.js"></script><script src="../js/art/zombies.js"></script>
+<script>
+const c = document.getElementById('c'), x = c.getContext('2d');
+const types = [['walker',0],['walker',1],['walker',2],['walker',3],['runner',0],['brute',0],['exploder',0],['spitter',0],['elite',0],['butcher',0],['necro',0],['colossus',0],['titan',0],['lich',0],['runner',1]];
+const anim = new URLSearchParams(location.search).get('anim') || 'walk';
+const f = +(new URLSearchParams(location.search).get('f') || 0);
+TD.ZArt.setRes(4);
+types.forEach(([t,v],i) => {
+  const s = TD.ZArt.sprite(t, v, anim, f % (anim==='walk'?12:anim==='attack'?8:6), null, 1);
+  const col = i % 8, row = Math.floor(i / 8);
+  const px = 100 + col * 190, py = 380 + row * 420;
+  x.drawImage(s.img, px + TD.ZArt.BX0*4, py + TD.ZArt.BY0*4);
+  x.fillStyle='#fff'; x.fillText(t+v, px-20, py+30);
+});
+</script>

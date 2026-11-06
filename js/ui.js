@@ -1,8 +1,26 @@
-/* Последний Бастион — интерфейс (HTML-панели, HUD, меню) */
+/* Последний Бастион — интерфейс: HUD, панель улучшений, окна */
 (function () {
   const TD = globalThis.TD;
   const $ = (s) => document.querySelector(s);
   const fmt = (n) => Math.floor(n).toLocaleString('ru-RU');
+
+  // SVG-иконки (24×24)
+  const I = {
+    shield: '<path d="M12 2l8 3v6c0 5-3.5 9.3-8 11-4.5-1.7-8-6-8-11V5z" fill="currentColor"/><path d="M12 5v14" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>',
+    skull: '<path fill="currentColor" d="M12 2C7 2 3.5 5.5 3.5 10c0 2.6 1.2 4.6 3 5.8V19a1 1 0 001 1h2v-2h1.2v2h2.6v-2H14.5v2h2a1 1 0 001-1v-3.2c1.8-1.2 3-3.2 3-5.8C20.5 5.5 17 2 12 2zM8.5 13.2a2.1 2.1 0 110-4.2 2.1 2.1 0 010 4.2zm7 0a2.1 2.1 0 110-4.2 2.1 2.1 0 010 4.2zM12 14.5l-1.2 2h2.4z"/>',
+    tower: '<path fill="currentColor" d="M5 2h2.5v2h2V2h2.2v2h2V2h2.2v2h2V2H20v6l-2 2v12H6V10L4 8V2zm6 14v6h2v-6a1 1 0 00-2 0z" transform="translate(0 0)"/>',
+    pause: '<path fill="currentColor" d="M6 4h4v16H6zM14 4h4v16h-4z"/>',
+    play: '<path fill="currentColor" d="M7 4l13 8-13 8z"/>',
+    sound: '<path fill="currentColor" d="M3 9h4l5-4v14l-5-4H3z"/><path d="M15.5 8.5a5 5 0 010 7M18 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>',
+    mute: '<path fill="currentColor" d="M3 9h4l5-4v14l-5-4H3z"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    menu: '<path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+    swords: '<path d="M4 4l10 10M20 4L10 14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 16l-4 4M12 16l4 4M7 13l4 4M17 13l-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    house: '<path fill="currentColor" d="M3 11.5L12 3l9 8.5V21h-6v-6H9v6H3z"/>',
+    up: '<path fill="currentColor" d="M12 4l7 8h-4v8H9v-8H5z"/>',
+  };
+  const icon = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[n] || ''}</svg>`;
+  TD.icon = icon;
+  function applyIcons(root) { (root || document).querySelectorAll('i.ico[data-icon]').forEach((e) => { e.innerHTML = icon(e.dataset.icon); }); }
 
   const NEW_ENEMY = {
     3: 'Новый враг: Бегуны — быстрые, но хилые.',
@@ -20,6 +38,7 @@
       this.tab = 'building';
       this.cards = {};
       this.lastGold = -1;
+      applyIcons();
       this.buildCards();
       this.bind();
     }
@@ -31,19 +50,23 @@
         const el = document.createElement('div');
         el.className = 'card';
         el.dataset.id = it.id;
-        el.dataset.kind = it.kind;
         el.innerHTML = `
-          <div class="card-head">
-            <span class="card-ico">${it.icon}</span>
-            <div class="card-title"><div class="card-name">${it.name}</div><div class="card-lvl"></div></div>
+          <div class="card-art"><div class="art-frame"></div><span class="lvl-gem"></span></div>
+          <div class="card-main">
+            <div class="card-name">${it.name}</div>
+            <div class="pips"></div>
+            <div class="card-desc">${it.desc}</div>
           </div>
-          <div class="card-desc">${it.desc}</div>
           <div class="card-fx"></div>
-          <button class="btn upg"></button>`;
+          <button class="upg"><span class="upg-label"></span><span class="price"><i class="coin"></i><b></b></span></button>`;
         el.querySelector('.upg').addEventListener('click', (e) => { e.stopPropagation(); this.buy(it.id); });
         el.addEventListener('click', () => this.select(it.id, false));
         root.appendChild(el);
-        this.cards[it.id] = { el, lvlEl: el.querySelector('.card-lvl'), fxEl: el.querySelector('.card-fx'), btn: el.querySelector('.upg'), level: -1 };
+        this.cards[it.id] = {
+          el, art: el.querySelector('.art-frame'), gem: el.querySelector('.lvl-gem'), pips: el.querySelector('.pips'),
+          fxEl: el.querySelector('.card-fx'), btn: el.querySelector('.upg'), label: el.querySelector('.upg-label'), price: el.querySelector('.price b'),
+          level: -1, thumbKey: null,
+        };
       };
       TD.BUILDINGS.forEach(add);
       TD.DEFENSES.forEach(add);
@@ -78,7 +101,9 @@
       if (this.g.upgrade(id)) {
         this.sfx.play('upgrade');
         this.r.flashUp[id] = 1;
-        this.toast(`${it.icon} ${it.name}: ${wasLvl === 0 && it.kind === 'defense' ? 'построено!' : 'уровень ' + this.g.levels[id]}`);
+        this.toast(`<b>${it.name}</b> — ${wasLvl === 0 && it.kind === 'defense' ? 'построено!' : 'уровень ' + this.g.levels[id]}`);
+        const c = this.cards[id];
+        c.el.classList.remove('upgraded'); void c.el.offsetWidth; c.el.classList.add('upgraded');
         this.hooks.save();
       } else {
         const c = this.cards[id];
@@ -91,18 +116,22 @@
       const g = this.g;
       const l = g.levels[id];
       const now = it.fx(l, g.mods);
-      if (l >= it.max) return now.map((s) => `<div class="fx-line">${s}</div>`).join('') + '<div class="fx-max">Максимальный уровень</div>';
-      const nextLevels = Object.assign({}, g.levels, { [id]: l + 1 });
-      const next = it.fx(l + 1, TD.calcMods(nextLevels));
       const split = (s) => { const i = s.indexOf(': '); return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i + 2)]; };
+      const row = (lab, v, nx) => `<div class="fx-row"><span class="fx-lab">${lab}</span><span class="fx-dots"></span><span class="fx-val">${v}${nx != null && nx !== v ? `<span class="fx-arrow">▸</span><span class="fx-next">${nx}</span>` : ''}</span></div>`;
+      if (l >= it.max) return now.map((s) => row(...split(s))).join('') + '<div class="fx-max">✦ Максимальный уровень ✦</div>';
+      const next = it.fx(l + 1, TD.calcMods(Object.assign({}, g.levels, { [id]: l + 1 })));
       const same = now.length === next.length && now.every((s, i) => split(s)[0] === split(next[i])[0]);
-      if (same) {
-        return now.map((s, i) => {
-          const [lab, v] = split(s), v2 = split(next[i])[1];
-          return `<div class="fx-line">${lab}: <b>${v}</b>${v2 !== v ? ` <span class="arrow">→</span> <span class="nxt">${v2}</span>` : ''}</div>`;
-        }).join('');
-      }
-      return `<div class="fx-line muted">${now.join(' · ')}</div>` + next.map((s) => `<div class="fx-line nxt">→ ${s}</div>`).join('');
+      if (same) return now.map((s, i) => { const [lab, v] = split(s); return row(lab, v, split(next[i])[1]); }).join('');
+      return `<div class="fx-note">После постройки:</div>` + next.map((s) => { const [lab, v] = split(s); return row(lab, `<span class="fx-next">${v}</span>`); }).join('');
+    }
+
+    thumbKey(id, l) {
+      const it = TD.ITEMS[id];
+      if (it.kind === 'building') return TD.Bld.tier(l);
+      if (id === 'wall') return l < 4 ? 0 : l < 9 ? 1 : 2;
+      if (id === 'archers') return l >= 11 ? 2 : l >= 6 ? 1 : 0;
+      if (id === 'ballista') return l >= 9 ? 1 : 0;
+      return 0;
     }
 
     refreshCard(id) {
@@ -110,49 +139,65 @@
       const it = TD.ITEMS[id];
       const l = this.g.levels[id];
       c.level = l;
-      c.lvlEl.textContent = it.kind === 'defense' && l === 0 ? 'Не построено' : `Ур. ${l} / ${it.max}`;
+      const tk = this.thumbKey(id, l);
+      if (c.thumbKey !== tk) {
+        c.thumbKey = tk;
+        try {
+          const cv = this.r.thumb(id, Math.max(l, it.kind === 'defense' ? 1 : 0));
+          cv.className = 'thumb';
+          c.art.innerHTML = '';
+          c.art.appendChild(cv);
+        } catch (e) { /* иконка не критична */ }
+      }
+      c.gem.textContent = l >= it.max ? '★' : String(l);
+      const n = it.max;
+      let pips = '';
+      for (let i = 1; i <= n; i++) pips += `<i class="pip${i <= l ? ' on' : ''}"></i>`;
+      c.pips.innerHTML = pips;
+      c.pips.classList.toggle('dense', n > 12);
       c.fxEl.innerHTML = this.fxHtml(id);
       c.el.classList.toggle('maxed', l >= it.max);
       c.el.classList.toggle('unbuilt', it.kind === 'defense' && l === 0);
-      c.modsKey = JSON.stringify(this.g.mods);
+      c.modsKey = this.modsKey;
     }
 
     update() {
       const g = this.g;
-      const modsKey = JSON.stringify(g.mods);
+      this.modsKey = JSON.stringify(g.mods);
       for (const id in this.cards) {
         const c = this.cards[id];
-        if (c.level !== g.levels[id] || c.modsKey !== modsKey) this.refreshCard(id);
+        if (c.level !== g.levels[id] || c.modsKey !== this.modsKey) this.refreshCard(id);
         const cost = g.costOf(id);
         const max = !isFinite(cost);
         const can = !max && g.gold >= cost;
-        const label = max ? 'Максимум' : `${g.levels[id] === 0 && TD.ITEMS[id].kind === 'defense' ? 'Построить' : 'Улучшить'} · 🪙 ${fmt(cost)}`;
-        if (c.btn.textContent !== label) c.btn.textContent = label;
+        const label = max ? 'Максимум' : g.levels[id] === 0 && TD.ITEMS[id].kind === 'defense' ? 'Построить' : 'Улучшить';
+        if (c.label.textContent !== label) c.label.textContent = label;
+        const pr = max ? '' : fmt(cost);
+        if (c.price.textContent !== pr) c.price.textContent = pr;
         c.btn.disabled = max;
         c.btn.classList.toggle('cant', !can && !max);
         c.el.classList.toggle('can', can);
       }
-      // Метки на вкладках
-      const countCan = (kind) => Object.keys(this.cards).filter((id) => TD.ITEMS[id].kind === kind && g.canUpgrade(id)).length;
       document.querySelectorAll('.tab').forEach((t) => {
-        const n = countCan(t.dataset.tab);
+        let n = 0;
+        for (const id in this.cards) if (TD.ITEMS[id].kind === t.dataset.tab && g.canUpgrade(id)) n++;
         const b = t.querySelector('.badge');
         b.textContent = n || '';
         b.style.display = n ? '' : 'none';
       });
-      // HUD
       if (g.gold !== this.lastGold) {
         $('#gold').textContent = fmt(g.gold);
-        if (g.gold > this.lastGold && this.lastGold >= 0) { const e = $('#goldPill'); e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); }
+        $('#panelGold').textContent = fmt(g.gold);
+        if (g.gold > this.lastGold && this.lastGold >= 0) for (const e of [$('#goldPill'), $('.ph-gold')]) { e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump'); }
         this.lastGold = g.gold;
       }
       $('#wave').textContent = g.wave;
       const f = Math.max(0, g.wallHp / g.wallMax);
-      $('#wallFill').style.width = (f * 100).toFixed(1) + '%';
-      $('#wallFill').className = f < 0.3 ? 'low' : f < 0.6 ? 'mid' : '';
+      const wf = $('#wallFill');
+      wf.style.width = (f * 100).toFixed(1) + '%';
+      wf.className = f < 0.3 ? 'low' : f < 0.6 ? 'mid' : '';
       $('#wallText').textContent = `${fmt(Math.max(0, g.wallHp))} / ${fmt(g.wallMax)}`;
       $('#enemies').textContent = g.phase === 'battle' ? g.remaining : '—';
-      // Подготовка
       const prep = $('#prep');
       const showPrep = g.phase === 'prep';
       prep.classList.toggle('hidden', !showPrep);
@@ -197,10 +242,10 @@
       });
     }
 
-    toast(msg) {
+    toast(html) {
       const t = document.createElement('div');
       t.className = 'toast-item';
-      t.textContent = msg;
+      t.innerHTML = html;
       $('#toast').appendChild(t);
       setTimeout(() => t.classList.add('out'), 1800);
       setTimeout(() => t.remove(), 2400);
@@ -209,15 +254,16 @@
     modal(html, buttons) {
       const o = $('#overlay');
       const m = $('#modal');
-      m.innerHTML = html + '<div class="modal-btns"></div>';
+      m.innerHTML = '<span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>' + html + '<div class="modal-btns"></div>';
       const row = m.querySelector('.modal-btns');
       for (const b of buttons) {
         const el = document.createElement('button');
         el.className = 'btn ' + (b.cls || '');
-        el.textContent = b.text;
+        el.innerHTML = b.text;
         el.addEventListener('click', () => { this.sfx.init(); if (!b.keep) this.closeModal(); b.fn && b.fn(); });
         row.appendChild(el);
       }
+      applyIcons(m);
       o.classList.remove('hidden');
     }
 
@@ -226,4 +272,5 @@
   }
 
   TD.UI = UI;
+  TD.applyIcons = applyIcons;
 })();
