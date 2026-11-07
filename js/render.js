@@ -10,6 +10,8 @@
   const ease = (t) => t * t * (3 - 2 * t);
   const F_ = W.WALL_FRONT, B_ = W.WALL_BACK;
   const GATE = { z0: 168, z1: 232 };
+  // Угловая башня стоит на дальнем краю земли (z >= 0), ближний конец стены уходит за нижний край экрана
+  const CORNER = { z0: 2, z1: 34, tz: 18, half: 16 };
 
   class Renderer {
     constructor(canvas, game) {
@@ -48,6 +50,9 @@
       this.scale = Math.min(rect.width / LW, rect.height / LH) || 1;
       this.ox = (rect.width - LW * this.scale) / 2;
       this.oy = (rect.height - LH * this.scale) / 2;
+      // Нижняя видимая граница сцены: стена должна уходить за неё, а не обрываться
+      this.viewPad = this.oy / this.scale;
+      this.wallEnd = Math.max(460, Math.ceil((LH + this.viewPad + 90 - W.GY0) / ZK));
       const k = this.scale * dpr;
       if (k !== this.k) { this.k = k; this.bsprites = {}; this.wallKey = null; }
       TD.ZArt.setRes(Math.max(1.5, Math.min(3, this.k * 1.05)));
@@ -200,15 +205,16 @@
       ctx.setTransform(this.k, 0, 0, this.k, this.dpr * this.ox + sx * this.k, this.dpr * this.oy + sy * this.k);
       ctx.lineJoin = 'round';
       ctx.save();
-      ctx.beginPath(); ctx.rect(-20, -20, LW + 40, LH + 40); ctx.clip();
+      ctx.beginPath(); ctx.rect(-20, -this.viewPad - 20, LW + 40, LH + this.viewPad * 2 + 40); ctx.clip();
       ctx.drawImage(this.bg, 0, 0, LW, LH);
+      // Продолжение земли поселения ниже кадра (для высоких экранов)
+      if (this.viewPad > 1) poly(ctx, [P(-300, 400, 0), P(B_, 400, 0), P(B_, this.wallEnd, 0), P(-300, this.wallEnd, 0)], 'rgba(70,60,48,0.35)');
       this.hits = [];
       this.drawClouds(ctx, dt);
       this.drawDecals(ctx);
       this.ambient(dt);
       this.drawSettlement(ctx);
       this.drawWall(ctx);
-      this.drawWallTop(ctx);
       this.drawPools(ctx);
       this.drawZombies(ctx);
       this.drawParticles(ctx);
@@ -575,126 +581,156 @@
     }
 
     // ================= Стена =================
+    // Стена режется на куски (участки между башнями и сами башни). Каждый кусок кешируется
+    // отдельным спрайтом и рисуется по глубине вместе с лучниками, баллистами, котлами и факелами.
+    wallPieces() {
+      const g = this.game;
+      const key = g.wallTier + ':' + g.levels.wall + ':' + g.ballistas.length + ':' + this.k + ':' + this.wallEnd;
+      if (key === this.wallKey && this.pieces) return this.pieces;
+      this.wallKey = key;
+      const H = g.wallH, tier = g.wallTier;
+      const base = ['#6e4f30', '#8a857c', '#6a6670'][tier];
+      const rnd = seeded(99 + g.levels.wall);
+      const pieces = [];
+      const add = (k, x0, x1, z0, z1, h1, fn) => pieces.push(Object.assign({ key: k }, this.piece(x0, x1, z0, z1, h1, fn)));
+      add(CORNER.z0, B_ - 6, F_ + 16, CORNER.z0, CORNER.z1, H + 18 + 9 + 52, (c) => this.paintTower(c, CORNER.tz, H + 18, tier, base, rnd, CORNER.half, true));
+      add(GATE.z0, B_ - 10, F_ + 24, GATE.z0, GATE.z1, TD.towerTop(0, H) + 14, (c) => this.paintGatehouse(c, H, tier, base, rnd));
+      for (let i = 1; i < g.ballistas.length; i++) {
+        const tz = TD.TOWER_Z[i];
+        add(tz - 24, B_ - 6, F_ + 16, tz - 24, tz + 24, TD.towerTop(i, H) + 12, (c) => this.paintTower(c, tz, TD.towerTop(i, H), tier, base, rnd, 24, false));
+      }
+      for (const [a, b] of this.wallSegments()) add(a, B_ - 2, F_ + 24, a, b, H + 22, (c) => this.paintSegment(c, a, b, H, tier, base, rnd));
+      pieces.sort((p, q) => p.key - q.key);
+      return (this.pieces = pieces);
+    }
+
+    // Кусок стены в собственном спрайте (только по своей рамке)
+    piece(x0, x1, z0, z1, h1, fn) {
+      let bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+      for (const x of [x0, x1]) for (const z of [z0, z1]) for (const h of [0, h1]) {
+        const p = P(x, z, h);
+        bx0 = Math.min(bx0, p.x); by0 = Math.min(by0, p.y); bx1 = Math.max(bx1, p.x); by1 = Math.max(by1, p.y);
+      }
+      const bb = { x0: Math.floor(bx0 - 8), y0: Math.floor(by0 - 8), x1: Math.ceil(bx1 + 8), y1: Math.ceil(by1 + 8) };
+      const k = this.k;
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.ceil((bb.x1 - bb.x0) * k)); cv.height = Math.max(1, Math.ceil((bb.y1 - bb.y0) * k));
+      const c = cv.getContext('2d');
+      c.setTransform(k, 0, 0, k, -bb.x0 * k, -bb.y0 * k);
+      c.lineJoin = 'round';
+      fn(c);
+      return { img: cv, bb };
+    }
+
     drawWall(ctx) {
       const g = this.game;
-      const key = g.wallTier + ':' + g.levels.wall + ':' + g.ballistas.length + ':' + this.k;
-      if (key !== this.wallKey) { this.wallKey = key; this.wallImg = this.layer((c) => this.paintWall(c)); }
-      ctx.drawImage(this.wallImg, 0, 0, LW, LH);
+      const H = g.wallH;
+      const items = [];
+      for (const p of this.wallPieces()) items.push({ k: p.key, f: () => ctx.drawImage(p.img, p.bb.x0, p.bb.y0, p.bb.x1 - p.bb.x0, p.bb.y1 - p.bb.y0) });
+      for (const a of g.archers) items.push({ k: a.z, f: () => this.drawArcher(ctx, a) });
+      g.ballistas.forEach((b, i) => items.push({ k: (i === 0 ? GATE.z0 : TD.TOWER_Z[i] - 24) + 0.5, f: () => this.drawBallista(ctx, b, i) }));
+      for (const c of g.cauldrons) items.push({ k: c.z + 0.5, f: () => this.drawCauldron(ctx, c) });
+      for (const tz of [104, 150, 250, 300, 384, 440]) items.push({ k: tz, f: () => this.drawTorch(ctx, tz, F_ + (g.wallTier === 2 ? 5 : 1), H - 16) });
+      for (const tz of [GATE.z0 + 10, GATE.z1 - 10]) items.push({ k: tz, f: () => this.drawTorch(ctx, tz, F_ + 21, Math.min(38, H * 0.55) + 2) });
+      items.sort((a, b) => a.k - b.k);
+      for (const it of items) it.f();
       const f = g.wallHp / g.wallMax;
       if (f < 0.75) this.drawCracks(ctx, f);
-      if (g.wallHitT > 0) poly(ctx, [P(F_, -20, 0), P(F_, 430, 0), P(F_, 430, g.wallH), P(F_, -20, g.wallH)], `rgba(255,60,40,${g.wallHitT * 0.45})`);
+      if (g.wallHitT > 0) poly(ctx, [P(F_, CORNER.z1, 0), P(F_, this.wallEnd, 0), P(F_, this.wallEnd, H), P(F_, CORNER.z1, H)], `rgba(255,60,40,${g.wallHitT * 0.45})`);
       if (g.phase === 'defeat') this.drawBreach(ctx);
-      this.hits.push({ id: 'wall', poly: [P(B_, -20, g.wallH + 8), P(F_ + 4, -20, g.wallH + 8), P(F_ + 4, 430, 0), P(B_, 430, 0)] });
+      this.hits.push({ id: 'wall', poly: [P(B_, CORNER.z0, H + 8), P(F_ + 4, CORNER.z0, H + 8), P(F_ + 4, this.wallEnd, 0), P(B_, this.wallEnd, 0)] });
     }
 
-    paintWall(c) {
-      const g = this.game;
-      const H = g.wallH, tier = g.wallTier;
+    // Участок стены между башнями: боевой ход, лицевая грань, зубцы
+    paintSegment(c, a, b, H, tier, base, rnd) {
       const T = TD.Bld.tex;
-      const rnd = seeded(99 + g.levels.wall);
-      const z0 = -20, z1 = 430;
-      const base = ['#6e4f30', '#8a857c', '#6a6670'][tier];
       const front = { x: F_ };
-      poly(c, [P(F_, z0, 0), P(F_ + 14, z0, 0), P(F_ + 14, z1, 0), P(F_, z1, 0)], 'rgba(40,32,24,0.55)');
-      const segs = this.wallSegments(z0, z1);
-      for (const [a, b] of segs) {
-        poly(c, [P(B_, a, H), P(F_, a, H), P(F_, b, H), P(B_, b, H)], tier === 0 ? '#5e4428' : shade(base, 0.82));
-        c.strokeStyle = tier === 0 ? 'rgba(30,20,10,0.6)' : 'rgba(0,0,0,0.22)'; c.lineWidth = 0.6;
-        c.beginPath();
-        for (let z = a; z < b; z += tier === 0 ? 7 : 12) { const p0 = P(B_, z, H), p1 = P(F_ - 6, z, H); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y); }
-        c.stroke();
-      }
+      poly(c, [P(F_, a, 0), P(F_ + 14, a, 0), P(F_ + 14, b, 0), P(F_, b, 0)], 'rgba(40,32,24,0.55)');
+      poly(c, [P(B_, a, H), P(F_, a, H), P(F_, b, H), P(B_, b, H)], tier === 0 ? '#5e4428' : shade(base, 0.82));
+      c.strokeStyle = tier === 0 ? 'rgba(30,20,10,0.6)' : 'rgba(0,0,0,0.22)'; c.lineWidth = 0.6;
+      c.beginPath();
+      for (let z = a; z < b; z += tier === 0 ? 7 : 12) { const p0 = P(B_, z, H), p1 = P(F_ - 6, z, H); c.moveTo(p0.x, p0.y); c.lineTo(p1.x, p1.y); }
+      c.stroke();
       if (tier === 0) {
-        for (const [a, b] of segs) {
-          for (let z = a; z < b - 0.5; z += 8.6) {
-            const zb = Math.min(b, z + 8.6);
-            const hh = H + 3 + rnd() * 7;
-            const m0 = P(F_, z, H * 0.5), m1 = P(F_, zb, H * 0.5);
-            const gr = c.createLinearGradient(m0.x, m0.y, m1.x, m1.y);
-            gr.addColorStop(0, '#3e2a18'); gr.addColorStop(0.35, '#8a6440'); gr.addColorStop(0.6, '#6e4c2c'); gr.addColorStop(1, '#2e1e10');
-            const tip = P(F_, (z + zb) / 2, hh + 7);
-            poly(c, [P(F_, z, 0), P(F_, zb, 0), P(F_, zb, hh), tip, P(F_, z, hh)], gr, 'rgba(20,12,6,0.8)', 0.6);
-            poly(c, [P(F_, z + 2, hh + 1), tip, P(F_, zb - 2, hh + 1), P(F_, (z + zb) / 2, hh - 1)], '#c8a070');
-            c.strokeStyle = 'rgba(20,12,6,0.45)'; c.lineWidth = 0.4; c.beginPath();
-            for (let k = 0; k < 3; k++) { const zz = z + 2 + rnd() * 4.6, hA = rnd() * hh * 0.8; const q0 = P(F_, zz, hA), q1 = P(F_, zz + 0.5, hA + 6 + rnd() * 8); c.moveTo(q0.x, q0.y); c.lineTo(q1.x, q1.y); }
-            c.stroke();
-          }
-          for (const hh of [H * 0.22, H * 0.68]) {
-            const bf = { x: F_ + 1.5 };
-            T.quadFill(c, bf, a, hh, b, hh + 5, T.vg(c, bf, a, hh, hh + 5, '#7a5634', '#3e2a18'), 'rgba(20,12,6,0.8)', 0.5);
-            for (let z = a + 10; z < b; z += 26) poly(c, [P(F_ + 2, z, hh - 1), P(F_ + 2, z, hh + 6), P(F_ + 2, z + 2.5, hh + 6), P(F_ + 2, z + 2.5, hh - 1)], '#a8905a', 'rgba(40,30,10,0.6)', 0.3);
-          }
+        for (let z = a; z < b - 0.5; z += 8.6) {
+          const zb = Math.min(b, z + 8.6);
+          const hh = H + 3 + rnd() * 7;
+          const m0 = P(F_, z, H * 0.5), m1 = P(F_, zb, H * 0.5);
+          const gr = c.createLinearGradient(m0.x, m0.y, m1.x, m1.y);
+          gr.addColorStop(0, '#3e2a18'); gr.addColorStop(0.35, '#8a6440'); gr.addColorStop(0.6, '#6e4c2c'); gr.addColorStop(1, '#2e1e10');
+          const tip = P(F_, (z + zb) / 2, hh + 7);
+          poly(c, [P(F_, z, 0), P(F_, zb, 0), P(F_, zb, hh), tip, P(F_, z, hh)], gr, 'rgba(20,12,6,0.8)', 0.6);
+          poly(c, [P(F_, z + 2, hh + 1), tip, P(F_, zb - 2, hh + 1), P(F_, (z + zb) / 2, hh - 1)], '#c8a070');
+          c.strokeStyle = 'rgba(20,12,6,0.45)'; c.lineWidth = 0.4; c.beginPath();
+          for (let k = 0; k < 3; k++) { const zz = z + 2 + rnd() * 4.6, hA = rnd() * hh * 0.8; const q0 = P(F_, zz, hA), q1 = P(F_, zz + 0.5, hA + 6 + rnd() * 8); c.moveTo(q0.x, q0.y); c.lineTo(q1.x, q1.y); }
+          c.stroke();
         }
-      } else {
-        for (const [a, b] of segs) {
-          T.stones(c, { x: F_ + 3 }, a, b, 0, 9, shade(base, 0.85), rnd, 9, 18, false);
-          poly(c, [P(F_, a, 9), P(F_ + 3, a, 9), P(F_ + 3, b, 9), P(F_, b, 9)], shade(base, 1.1));
-          T.stones(c, front, a, b, 9, H, base, rnd, tier === 1 ? 7 : 8, tier === 1 ? 14 : 18, false);
-          for (let i = 0; i < (b - a) / 10; i++) {
-            const zz = a + rnd() * (b - a);
-            const q0 = P(F_ + 0.2, zz, H - 2), q1 = P(F_ + 0.2, zz + 1, H * (0.3 + rnd() * 0.4));
-            const gr = c.createLinearGradient(q0.x, q0.y, q1.x, q1.y); gr.addColorStop(0, 'rgba(20,20,26,0.3)'); gr.addColorStop(1, 'rgba(20,20,26,0)');
-            line(c, q0.x, q0.y, q1.x, q1.y, gr, 2.2 * q0.s);
-          }
-          for (let i = 0; i < (b - a) / 6; i++) { const q = P(F_ + 0.3, a + rnd() * (b - a), 9 + rnd() * 6); ellipse(c, q.x, q.y, 2.2 * q.s, 1.6 * q.s, 0, 'rgba(70,100,55,0.45)'); }
-          for (let z = a + 18; z < b - 10; z += 42) poly(c, [P(F_ + 0.3, z - 1, H * 0.45), P(F_ + 0.3, z + 1, H * 0.45), P(F_ + 0.3, z + 1, H * 0.45 + 13), P(F_ + 0.3, z - 1, H * 0.45 + 13)], '#0e0b10');
-          if (tier === 2) {
-            for (let z = a + 3; z < b - 3; z += 9) poly(c, [P(F_, z, H - 9), P(F_, z + 4, H - 9), P(F_ + 4, z + 4, H - 2), P(F_ + 4, z, H - 2)], shade(base, 1.05), OUT, 0.4);
-            poly(c, [P(F_ + 4, a, H - 2), P(F_ + 4, b, H - 2), P(F_ + 4, b, H + 1), P(F_ + 4, a, H + 1)], shade(base, 1.15), OUT, 0.4);
-            for (let z = a + 3; z < b; z += 14) {
-              const p0 = P(F_, z, 2), p1 = P(F_ + 18, z + 3, 7);
-              line(c, p0.x, p0.y, p1.x, p1.y, '#4a3a2a', 2 * p0.s);
-              circle(c, p1.x, p1.y, 1.2, '#b8b8c0');
-            }
-          }
-          const mw = tier === 1 ? 11 : 12, gap = tier === 1 ? 8 : 9, mh = tier === 1 ? 11 : 13;
-          const fx = tier === 2 ? F_ + 4 : F_;
-          for (let z = a + 1; z < b - 2; z += mw + gap) {
-            const ze = Math.min(b - 1, z + mw);
-            T.texBox(c, fx - 7, fx, z, ze, H, H + mh, 'stone', base, rnd, { rowH: mh / 2, len: 7, top: shade(base, 1.2), sideF: 1.05, frontF: 0.75 });
-          }
+        for (const hh of [H * 0.22, H * 0.68]) {
+          const bf = { x: F_ + 1.5 };
+          T.quadFill(c, bf, a, hh, b, hh + 5, T.vg(c, bf, a, hh, hh + 5, '#7a5634', '#3e2a18'), 'rgba(20,12,6,0.8)', 0.5);
+          for (let z = a + 10; z < b; z += 26) poly(c, [P(F_ + 2, z, hh - 1), P(F_ + 2, z, hh + 6), P(F_ + 2, z + 2.5, hh + 6), P(F_ + 2, z + 2.5, hh - 1)], '#a8905a', 'rgba(40,30,10,0.6)', 0.3);
         }
-        if (tier === 2) {
-          for (const z of [128, 274]) {
-            const pts = [P(F_ + 5, z - 11, H - 10), P(F_ + 5, z + 11, H - 10), P(F_ + 5, z + 11, H - 52), P(F_ + 5, z, H - 60), P(F_ + 5, z - 11, H - 52)];
-            const gr = c.createLinearGradient(pts[0].x, pts[0].y, pts[1].x, pts[1].y); gr.addColorStop(0, '#a82a2e'); gr.addColorStop(1, '#5a1418');
-            poly(c, pts, gr, '#d4a64a', 1.2);
-            const m = P(F_ + 5, z, H - 30);
-            c.fillStyle = '#e8c060'; c.font = `bold ${16 * m.s}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('♜', m.x, m.y);
-          }
+        return;
+      }
+      T.stones(c, { x: F_ + 3 }, a, b, 0, 9, shade(base, 0.85), rnd, 9, 18, false);
+      poly(c, [P(F_, a, 9), P(F_ + 3, a, 9), P(F_ + 3, b, 9), P(F_, b, 9)], shade(base, 1.1));
+      T.stones(c, front, a, b, 9, H, base, rnd, tier === 1 ? 7 : 8, tier === 1 ? 14 : 18, false);
+      for (let i = 0; i < (b - a) / 10; i++) {
+        const zz = a + rnd() * (b - a);
+        const q0 = P(F_ + 0.2, zz, H - 2), q1 = P(F_ + 0.2, zz + 1, H * (0.3 + rnd() * 0.4));
+        const gr = c.createLinearGradient(q0.x, q0.y, q1.x, q1.y); gr.addColorStop(0, 'rgba(20,20,26,0.3)'); gr.addColorStop(1, 'rgba(20,20,26,0)');
+        line(c, q0.x, q0.y, q1.x, q1.y, gr, 2.2 * q0.s);
+      }
+      for (let i = 0; i < (b - a) / 6; i++) { const q = P(F_ + 0.3, a + rnd() * (b - a), 9 + rnd() * 6); ellipse(c, q.x, q.y, 2.2 * q.s, 1.6 * q.s, 0, 'rgba(70,100,55,0.45)'); }
+      for (let z = a + 18; z < b - 10; z += 42) poly(c, [P(F_ + 0.3, z - 1, H * 0.45), P(F_ + 0.3, z + 1, H * 0.45), P(F_ + 0.3, z + 1, H * 0.45 + 13), P(F_ + 0.3, z - 1, H * 0.45 + 13)], '#0e0b10');
+      if (tier === 2) {
+        for (let z = a + 3; z < b - 3; z += 9) poly(c, [P(F_, z, H - 9), P(F_, z + 4, H - 9), P(F_ + 4, z + 4, H - 2), P(F_ + 4, z, H - 2)], shade(base, 1.05), OUT, 0.4);
+        poly(c, [P(F_ + 4, a, H - 2), P(F_ + 4, b, H - 2), P(F_ + 4, b, H + 1), P(F_ + 4, a, H + 1)], shade(base, 1.15), OUT, 0.4);
+        for (let z = a + 3; z < b; z += 14) {
+          const p0 = P(F_, z, 2), p1 = P(F_ + 18, z + 3, 7);
+          line(c, p0.x, p0.y, p1.x, p1.y, '#4a3a2a', 2 * p0.s);
+          circle(c, p1.x, p1.y, 1.2, '#b8b8c0');
+        }
+        for (const z of [128, 274]) {
+          if (z - 12 < a || z + 12 > b) continue;
+          const pts = [P(F_ + 5, z - 11, H - 10), P(F_ + 5, z + 11, H - 10), P(F_ + 5, z + 11, H - 52), P(F_ + 5, z, H - 60), P(F_ + 5, z - 11, H - 52)];
+          const gr = c.createLinearGradient(pts[0].x, pts[0].y, pts[1].x, pts[1].y); gr.addColorStop(0, '#a82a2e'); gr.addColorStop(1, '#5a1418');
+          poly(c, pts, gr, '#d4a64a', 1.2);
+          const m = P(F_ + 5, z, H - 30);
+          c.fillStyle = '#e8c060'; c.font = `bold ${16 * m.s}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('♜', m.x, m.y);
         }
       }
-      const towers = [];
-      for (let i = 1; i < g.ballistas.length; i++) towers.push(TD.TOWER_Z[i]);
-      towers.sort((x, y) => x - y);
-      this.paintTower(c, -22, H + 18, tier, base, rnd, true);
-      for (const tz of towers) if (tz < 200) this.paintTower(c, tz, TD.towerTop(1, H), tier, base, rnd);
-      this.paintGatehouse(c, H, tier, base, rnd);
-      for (const tz of towers) if (tz > 200) this.paintTower(c, tz, TD.towerTop(1, H), tier, base, rnd);
+      const mw = tier === 1 ? 11 : 12, gap = tier === 1 ? 8 : 9, mh = tier === 1 ? 11 : 13;
+      const fx = tier === 2 ? F_ + 4 : F_;
+      for (let z = a + 1; z < b - 2; z += mw + gap) {
+        const ze = Math.min(b - 1, z + mw);
+        T.texBox(c, fx - 7, fx, z, ze, H, H + mh, 'stone', base, rnd, { rowH: mh / 2, len: 7, top: shade(base, 1.2), sideF: 1.05, frontF: 0.75 });
+      }
     }
 
-    wallSegments(z0, z1) {
+    // Участки стены между башнями (от угловой башни до ближнего края за экраном)
+    wallSegments() {
       const g = this.game;
-      const blocks = [[GATE.z0, GATE.z1], [-46, 2]];
+      const blocks = [[GATE.z0, GATE.z1]];
       for (let i = 1; i < g.ballistas.length; i++) blocks.push([TD.TOWER_Z[i] - 24, TD.TOWER_Z[i] + 24]);
       blocks.sort((a, b) => a[0] - b[0]);
       const out = [];
-      let cur = z0;
-      for (const [a, b] of blocks) { if (a > cur) out.push([cur, Math.min(a, z1)]); cur = Math.max(cur, b); }
-      if (cur < z1) out.push([cur, z1]);
+      let cur = CORNER.z1;
+      for (const [a, b] of blocks) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
+      if (cur < this.wallEnd) out.push([cur, this.wallEnd]);
       return out;
     }
 
-    paintTower(c, tz, th, tier, base, rnd, corner) {
+    paintTower(c, tz, th, tier, base, rnd, half, corner) {
       const T = TD.Bld.tex;
-      const x0 = B_ - 4, x1 = F_ + 14, z0 = tz - 24, z1 = tz + 24;
+      const x0 = B_ - 4, x1 = F_ + 14, z0 = tz - half, z1 = tz + half;
       const col = tier === 0 ? '#7a5634' : shade(base, 1.05);
       if (tier === 0) T.texBox(c, x0, x1, z0, z1, 0, th, 'planks', col, rnd, { pw: 5, sideF: 1.05, frontF: 0.7 });
       else T.texBox(c, x0, x1, z0, z1, 0, th, 'stone', col, rnd, { rowH: 7, len: 12, sideF: 1.05, frontF: 0.68 });
       poly(c, [P(x1 + 0.3, tz - 1.2, th * 0.5), P(x1 + 0.3, tz + 1.2, th * 0.5), P(x1 + 0.3, tz + 1.2, th * 0.5 + 14), P(x1 + 0.3, tz - 1.2, th * 0.5 + 14)], '#0e0b10');
       poly(c, [P(x0 - 1, z1 + 1, th), P(x1 + 1, z1 + 1, th), P(x1 + 1, z0 - 1, th), P(x0 - 1, z0 - 1, th)], tier === 0 ? '#5e4428' : shade(base, 0.8), OUT, 0.5);
       const mh = 9;
-      const box = (xa, xb, za, zb) => T.texBox(c, xa, xb, za, zb, th, th + mh, tier === 0 ? 'planks' : 'stone', col, rnd, { rowH: mh / 2, len: 6, pw: 3, top: shade(col, 1.2) });
+      const box = (xa, xb, za, zb) => T.texBox(c, xa, xb, za, zb, th, th + mh, tier === 0 ? 'planks' : 'stone', col, rnd, { rowH: mh / 2, len: 6, pw: 3, top: shade(col, 1.2), sideF: 1.05, frontF: 0.75 });
       for (const [za, zb] of [[z0, z0 + 9], [tz - 4.5, tz + 4.5]]) box(x1 - 8, x1, za, zb);
       for (const [xa, xb] of [[x0, x0 + 9], [(x0 + x1) / 2 - 4.5, (x0 + x1) / 2 + 4.5]]) box(xa, xb, z1 - 8, z1);
       box(x1 - 8, x1, z1 - 9, z1);
@@ -782,18 +818,6 @@
         ctx.fillStyle = g.wallTier === 0 ? '#5a3e22' : shade('#6f6a62', 0.8 + r() * 0.4);
         ctx.fillRect(q.x - 4 * q.s, q.y - 6 * q.s, (5 + r() * 7) * q.s, (4 + r() * 4) * q.s);
       }
-    }
-
-    drawWallTop(ctx) {
-      const g = this.game;
-      const items = [];
-      for (const a of g.archers) items.push({ z: a.z, f: () => this.drawArcher(ctx, a) });
-      g.ballistas.forEach((b, i) => items.push({ z: b.z, f: () => this.drawBallista(ctx, b, i) }));
-      for (const c of g.cauldrons) items.push({ z: c.z + 0.5, f: () => this.drawCauldron(ctx, c) });
-      for (const tz of [40, 110, 150, 250, 300, 385]) items.push({ z: tz, f: () => this.drawTorch(ctx, tz, F_ + (g.wallTier === 2 ? 5 : 1), g.wallH - 16) });
-      for (const tz of [GATE.z0 + 10, GATE.z1 - 10]) items.push({ z: tz, f: () => this.drawTorch(ctx, tz, F_ + 21, Math.min(38, g.wallH * 0.55) + 2) });
-      items.sort((a, b) => a.z - b.z);
-      for (const it of items) it.f();
     }
 
     drawTorch(ctx, z, x, h) {
