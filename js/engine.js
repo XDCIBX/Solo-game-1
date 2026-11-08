@@ -30,6 +30,9 @@
   TD.CATAPULT_X = 420;
   TD.TREB_X = 345;
   const MAX_PARTICLES = 1600;
+  // Сколько секунд трупы лежат на поле и когда начинают растворяться
+  TD.CORPSE_LIFE = 26;
+  TD.CORPSE_FADE = 21;
 
   class Game {
     constructor(opts = {}) {
@@ -338,7 +341,12 @@
         if (z.casting > 0) z.casting -= dt;
         if (z.state === 'dead') {
           z.deadT += dt;
-          if (z.deadT > (z.gone ? 0 : 7)) continue;
+          if (z.deadT > (z.gone ? 0 : TD.CORPSE_LIFE)) continue;
+          if (!z.landed && z.deadT > 0.67 && !z.gone) {
+            z.landed = true;
+            this.burst('dust', z.x + 14 * z.size, z.z, 2, 4 + Math.round(z.size * 2), { spread: 10 * z.size, color: '#5a4c3e', size: 7 * z.size });
+            if (z.size > 1.6) this.shake = Math.max(this.shake, 2 + z.size);
+          }
         } else if (!this.headless && z.burn > 0 && Math.random() < dt * 14) {
           this.particle('fire', z.x + rnd(-8, 8) * z.size, z.z, rnd(10, 40) * z.size, { vh: rnd(30, 60), life: rnd(0.4, 0.7), size: rnd(4, 8) * z.size });
         }
@@ -735,8 +743,9 @@
 
     decal(kind, x, z, size, rot) {
       if (this.headless) return;
-      if (this.decals.length > 220) this.decals.shift();
-      this.decals.push({ kind, x, z, size, rot: rot != null ? rot : Math.random() * 6, t: 0, life: kind === 'crater' ? 14 : kind === 'arrow' || kind === 'bolt' ? 8 : 10, seed: Math.random() });
+      if (this.decals.length > 400) this.decals.shift();
+      const life = kind === 'crater' ? 14 : kind === 'arrow' || kind === 'bolt' ? 8 : kind === 'blood' ? TD.CORPSE_LIFE : 10;
+      this.decals.push({ kind, x, z, size, rot: rot != null ? rot : Math.random() * 6, t: 0, life, seed: Math.random() });
     }
 
     text(s, x, z, h, color, size) {

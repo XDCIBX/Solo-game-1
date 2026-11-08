@@ -10,7 +10,7 @@ const anim = new URLSearchParams(location.search).get('anim') || 'walk';
 const f = +(new URLSearchParams(location.search).get('f') || 0);
 TD.ZArt.setRes(4);
 types.forEach(([t,v],i) => {
-  const s = TD.ZArt.sprite(t, v, anim, f % (anim==='walk'?12:anim==='attack'?8:6), null, 1);
+  const s = TD.ZArt.sprite(t, v, anim, f % ({walk:12,attack:8,spit:6,death:8}[anim]), null, 1);
   const col = i % 8, row = Math.floor(i / 8);
   const px = 100 + col * 190, py = 380 + row * 420;
   x.drawImage(s.img, px + TD.ZArt.BX0*4, py + TD.ZArt.BY0*4);

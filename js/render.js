@@ -972,7 +972,7 @@
       const k = p.s * z.size;
       if (p.x < -80 || p.x > LW + 100) return;
       let alpha = 1;
-      if (z.state === 'dead') alpha = clamp(1 - (z.deadT - 4) / 3, 0, 1);
+      if (z.state === 'dead') alpha = clamp(1 - (z.deadT - TD.CORPSE_FADE) / (TD.CORPSE_LIFE - TD.CORPSE_FADE), 0, 1);
       if (z.x > W.SPAWN_X - 40 && z.state !== 'dead') alpha = Math.min(alpha, clamp((W.SPAWN_X + 70 - z.x) / 110, 0.15, 1));
       if (alpha <= 0) return;
       ctx.save();
@@ -996,15 +996,23 @@
         ctx.beginPath(); ctx.rect(-80 * k, -200 * k, 160 * k, 200 * k); ctx.clip();
         ctx.translate(0, (1 - ease(u)) * 50 * k);
       }
+      const variant = Math.floor(z.seed * 1000) % TD.ZArt.variants(z.type);
       if (z.state === 'dead') {
-        const u = clamp(z.deadT / 0.55, 0, 1);
-        ctx.rotate(u * u * PI * 0.48);
-        ctx.translate(0, u * 2 * k);
+        // Падение назад с ускорением, лёгкий отскок при ударе о землю, затем тело лежит неподвижно
+        const rest = TD.ZArt.deathRest(z.type, variant);
+        const u = clamp((z.deadT - 0.12) / 0.55, 0, 1), e = u * u;
+        let rot = rest.rot * e;
+        const b = z.deadT - 0.67;
+        if (b > 0) rot -= Math.sin(b * 18) * 0.07 * Math.exp(-b * 7);
+        ctx.globalAlpha = alpha * 0.55 * e;
+        ctx.drawImage(this.shadowImg, 2 * k, -4 * k, 40 * k, 9 * k);
+        ctx.globalAlpha = alpha;
+        ctx.translate(3 * e * k, rest.dy * e * k);
+        ctx.rotate(rot);
       }
       if (z.state === 'swell') ctx.scale(1 + z.stateT * 0.35, 1 + z.stateT * 0.15);
       ctx.scale(k, k);
       const fr = TD.ZArt.frame(z);
-      const variant = Math.floor(z.seed * 1000) % TD.ZArt.variants(z.type);
       const tint = z.flash > 0 ? 'flash' : z.burn > 0 ? 'burn' : null;
       const spr = TD.ZArt.sprite(z.type, variant, fr.anim, fr.f, tint, base.size > 1.5 ? Math.min(2.2, base.size) : 1);
       ctx.drawImage(spr.img, TD.ZArt.BX0, TD.ZArt.BY0, TD.ZArt.BW, TD.ZArt.BH);

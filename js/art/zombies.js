@@ -14,7 +14,8 @@
 
   // Габариты спрайта в локальных единицах (ступни в (0,0), лицом влево)
   const BX0 = -36, BY0 = -78, BW = 72, BH = 86;
-  const FRAMES = { walk: 12, attack: 8, spit: 6 };
+  const FRAMES = { walk: 12, attack: 8, spit: 6, death: 8 };
+  const DEATH_ROT = 1.02; // насколько тело заваливается назад к концу падения
 
   const DEF = {
     kind: 'human', thigh: 10.5, shin: 10.5, torso: 15, neck: 3.2, headR: 5.4,
@@ -76,6 +77,19 @@
       if (t < 0.5) { const k = ease(t / 0.5); tilt = lerp(0.1, -0.7, k); jaw = lerp(0.15, 0.3, k); L -= 0.15 * k; }
       else { const k = ease((t - 0.5) / 0.5); tilt = lerp(-0.7, 0.4, Math.min(1, k * 2)) * (1 - k * 0.6); jaw = lerp(0.9, 0.2, k); L += 0.1 * (1 - k); }
       arms = [{ U: 0.5, F: 0.9 }, { U: 0.6, F: 1.0 }];
+    } else if (anim === 'death') {
+      // Подкашиваются колени, корпус откидывается назад, руки взлетают и обмякают
+      const u = ease(Math.min(1, f / (FRAMES.death - 1)));
+      // В середине падения колени сильно согнуты, к концу ноги вытягиваются вдоль земли
+      const buckle = Math.sin(u * PI);
+      legs[0].th = lerp(-0.2, 0.42, u); legs[0].sh = legs[0].th - (lerp(0.2, 0.15, u) + 1.25 * buckle);
+      legs[1].th = lerp(0.3, 0.62, u); legs[1].sh = legs[1].th - (lerp(0.2, 0.4, u) + 1.0 * buckle);
+      for (const lg of legs) lg.lift = 0;
+      L = lerp(sp.lean, -0.55, u);
+      // Руки взлетают вверх и опадают за голову на землю
+      const U = lerp(1.15, 3.85, u);
+      arms = [{ U: U - 0.3, F: U - 0.3 + 0.2 * (1 - u) + 0.15 }, { U, F: U + 0.35 * (1 - u) + 0.12 }];
+      tilt = lerp(0.14, -0.6, u); jaw = lerp(0.2, 0.75, u);
     } else {
       switch (sp.arms) {
         case 'run': arms = [0, 1].map((i) => { const U = 0.15 + 0.85 * Math.sin(phi + i * PI + PI); return { U, F: U + 1.35 }; }); break;
@@ -739,6 +753,7 @@
 
   // ---------------- Кеш спрайтов ----------------
   const cache = new Map();
+  const restCache = new Map();
   const ZArt = {
     R: 2,
     BX0, BY0, BW, BH,
@@ -748,8 +763,23 @@
     },
     variants(type) { return (SPECS[type] || SPECS.walker).length; },
     stride(type) { return ((SPECS[type] || SPECS.walker)[0]).stride; },
+    // Поза «лёжа»: на сколько повернуть спрайт вокруг ступней и опустить, чтобы тело легло на землю
+    deathRest(type, variant) {
+      const key = type + '|' + variant;
+      if (restCache.has(key)) return restCache.get(key);
+      const list = SPECS[type] || SPECS.walker;
+      const sp = list[variant % list.length];
+      const P = pose(sp, 'death', FRAMES.death - 1);
+      const c = Math.cos(DEATH_ROT), s = Math.sin(DEATH_ROT);
+      let maxY = -1e9;
+      for (const [pt, r] of [[P.hip, sp.waist * 0.5], [P.sh, sp.chest * 0.45], [P.head, sp.headR]]) maxY = Math.max(maxY, pt.x * s + pt.y * c + r);
+      const rest = { rot: DEATH_ROT, dy: Math.max(0, -maxY) };
+      restCache.set(key, rest);
+      return rest;
+    },
     frame(z) {
-      if (z.state === 'attack' || (z.state === 'dead' && z.prevAttack)) {
+      if (z.state === 'dead') return { anim: 'death', f: Math.min(FRAMES.death - 1, Math.floor((z.deadT / 0.6) * (FRAMES.death - 1))) };
+      if (z.state === 'attack') {
         if (z.type === 'spitter') return { anim: 'spit', f: Math.min(5, Math.floor(clamp(z.atkAnim / 0.9, 0, 0.999) * 6)) };
         return { anim: 'attack', f: Math.floor(clamp(z.atkAnim / 0.75, 0, 0.999) * 8) };
       }
